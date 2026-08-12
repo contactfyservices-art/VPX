@@ -1,4 +1,5 @@
 import 'dart:collection';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
@@ -36,14 +37,25 @@ class BrowserScreen extends StatefulWidget {
 
 class _BrowserScreenState extends State<BrowserScreen> {
   InAppWebViewController? webViewController;
+  ProxyController? proxyController;
+
   double _progress = 0;
 
   final List<Map<String, String>> proxyList = [
-    {'name': 'Connexion Directe (Sans Proxy)', 'host': '', 'port': ''},
-    {'name': 'Proxy Personnalisé 1', 'host': '127.0.0.1', 'port': '8080'},
+    {
+      'name': 'Connexion Directe (Sans Proxy)',
+      'host': '',
+      'port': '',
+    },
+    {
+      'name': 'Proxy Personnalisé 1',
+      'host': '127.0.0.1',
+      'port': '8080',
+    },
   ];
 
   late Map<String, String> selectedProxy;
+
   final TextEditingController urlController = TextEditingController(
     text: 'https://pixelscan.net',
   );
@@ -57,34 +69,72 @@ class _BrowserScreenState extends State<BrowserScreen> {
       });
 
       // 2. Spoofing Matériel et Navigateur
-      Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
-      Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
-      Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
-      Object.defineProperty(navigator, 'language', { get: () => 'en-US' });
-      Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+      Object.defineProperty(navigator, 'hardwareConcurrency', {
+        get: () => 8
+      });
+
+      Object.defineProperty(navigator, 'deviceMemory', {
+        get: () => 8
+      });
+
+      Object.defineProperty(navigator, 'platform', {
+        get: () => 'Win32'
+      });
+
+      Object.defineProperty(navigator, 'language', {
+        get: () => 'en-US'
+      });
+
+      Object.defineProperty(navigator, 'languages', {
+        get: () => ['en-US', 'en']
+      });
 
       // 3. Spoofing Canvas Fingerprinting
-      const originalGetContext = HTMLCanvasElement.prototype.getContext;
+      const originalGetContext =
+          HTMLCanvasElement.prototype.getContext;
+
       HTMLCanvasElement.prototype.getContext = function(type, flags) {
-        const context = originalGetContext.apply(this, arguments);
+        const context =
+            originalGetContext.apply(this, arguments);
+
         if (type === '2d' && context) {
-          const originalGetImageData = context.getImageData;
+          const originalGetImageData =
+              context.getImageData;
+
           context.getImageData = function(x, y, w, h) {
-            const imageData = originalGetImageData.apply(this, arguments);
-            for (let i = 0; i < imageData.data.length; i += 4) {
-              imageData.data[i] = imageData.data[i] ^ ((i % 13) + 1);
+            const imageData =
+                originalGetImageData.apply(this, arguments);
+
+            for (
+              let i = 0;
+              i < imageData.data.length;
+              i += 4
+            ) {
+              imageData.data[i] =
+                  imageData.data[i] ^ ((i % 13) + 1);
             }
+
             return imageData;
           };
         }
+
         return context;
       };
 
       // 4. Spoofing WebGL (GPU / Vendeur)
-      const getParameter = WebGLRenderingContext.prototype.getParameter;
-      WebGLRenderingContext.prototype.getParameter = function(parameter) {
-        if (parameter === 37445) return 'Google Inc. (NVIDIA)';
-        if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)';
+      const getParameter =
+          WebGLRenderingContext.prototype.getParameter;
+
+      WebGLRenderingContext.prototype.getParameter =
+          function(parameter) {
+        if (parameter === 37445) {
+          return 'Google Inc. (NVIDIA)';
+        }
+
+        if (parameter === 37446) {
+          return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)';
+        }
+
         return getParameter.apply(this, arguments);
       };
 
@@ -94,14 +144,25 @@ class _BrowserScreenState extends State<BrowserScreen> {
       delete window.RTCIceCandidate;
 
       // 6. Protection contre l'Audio Fingerprinting
-      if (window.AudioContext || window.webkitAudioContext) {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        const originalGetChannelData = AudioBuffer.prototype.getChannelData;
-        AudioBuffer.prototype.getChannelData = function() {
-          const results = originalGetChannelData.apply(this, arguments);
+      if (window.AudioContext ||
+          window.webkitAudioContext) {
+
+        const AudioContext =
+            window.AudioContext ||
+            window.webkitAudioContext;
+
+        const originalGetChannelData =
+            AudioBuffer.prototype.getChannelData;
+
+        AudioBuffer.prototype.getChannelData =
+            function() {
+          const results =
+              originalGetChannelData.apply(this, arguments);
+
           for (let i = 0; i < results.length; i += 100) {
             results[i] = results[i] + 0.0000001;
           }
+
           return results;
         };
       }
@@ -111,7 +172,36 @@ class _BrowserScreenState extends State<BrowserScreen> {
   @override
   void initState() {
     super.initState();
+
     selectedProxy = proxyList.first;
+
+    _initializeProxy();
+  }
+
+  Future<void> _initializeProxy() async {
+    // CORRECTION : isFeatureSupported() retourne Future<bool>
+    if (!await WebViewFeature.isFeatureSupported(
+      WebViewFeature.PROXY_OVERRIDE,
+    )) {
+      return;
+    }
+
+    proxyController = ProxyController.instance();
+
+    if (selectedProxy['host']!.isEmpty) {
+      await proxyController!.clearProxyOverride();
+    } else {
+      await proxyController!.setProxyOverride(
+        settings: ProxySettings(
+          proxyRules: [
+            ProxyRule(
+              url:
+                  '${selectedProxy['host']}:${selectedProxy['port']}',
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   @override
@@ -120,7 +210,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
       appBar: AppBar(
         title: const Text(
           'Anti-Detect Browser',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         actions: [
           Padding(
@@ -129,13 +222,19 @@ class _BrowserScreenState extends State<BrowserScreen> {
               value: selectedProxy,
               dropdownColor: const Color(0xFF2C2C2C),
               underline: const SizedBox(),
-              icon: const Icon(Icons.shield_outlined, color: Colors.greenAccent),
+              icon: const Icon(
+                Icons.shield_outlined,
+                color: Colors.greenAccent,
+              ),
               items: proxyList.map((proxy) {
                 return DropdownMenuItem<Map<String, String>>(
                   value: proxy,
                   child: Text(
                     proxy['name']!,
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                    ),
                   ),
                 );
               }).toList(),
@@ -144,6 +243,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                   setState(() {
                     selectedProxy = value;
                   });
+
                   _applyProxyAndReload();
                 }
               },
@@ -159,39 +259,58 @@ class _BrowserScreenState extends State<BrowserScreen> {
             child: Row(
               children: [
                 IconButton(
-                  icon: const Icon(Icons.refresh, color: Colors.white70),
-                  onPressed: () => webViewController?.reload(),
+                  icon: const Icon(
+                    Icons.refresh,
+                    color: Colors.white70,
+                  ),
+                  onPressed: () {
+                    webViewController?.reload();
+                  },
                 ),
                 Expanded(
                   child: TextField(
                     controller: urlController,
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                    ),
                     decoration: InputDecoration(
                       hintText: 'Entrez une URL...',
-                      hintStyle: const TextStyle(color: Colors.grey),
+                      hintStyle:
+                          const TextStyle(color: Colors.grey),
                       filled: true,
                       fillColor: const Color(0xFF2C2C2C),
                       isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
+                      contentPadding:
+                          const EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 10,
                       ),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius:
+                            BorderRadius.circular(8),
                         borderSide: BorderSide.none,
                       ),
                     ),
-                    onSubmitted: (value) => _loadUrl(value),
+                    onSubmitted: (value) {
+                      _loadUrl(value);
+                    },
                   ),
                 ),
                 const SizedBox(width: 8),
                 IconButton(
-                  icon: const Icon(Icons.arrow_forward, color: Colors.greenAccent),
-                  onPressed: () => _loadUrl(urlController.text),
+                  icon: const Icon(
+                    Icons.arrow_forward,
+                    color: Colors.greenAccent,
+                  ),
+                  onPressed: () {
+                    _loadUrl(urlController.text);
+                  },
                 ),
               ],
             ),
           ),
+
           if (_progress < 1.0)
             LinearProgressIndicator(
               value: _progress,
@@ -199,34 +318,46 @@ class _BrowserScreenState extends State<BrowserScreen> {
               color: Colors.greenAccent,
               minHeight: 2,
             ),
+
           Expanded(
             child: InAppWebView(
-              initialUrlRequest: URLRequest(url: WebUri('https://pixelscan.net')),
+              initialUrlRequest: URLRequest(
+                url: WebUri('https://pixelscan.net'),
+              ),
+
               initialSettings: InAppWebViewSettings(
                 userAgent:
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                    'AppleWebKit/537.36 '
+                    '(KHTML, like Gecko) '
+                    'Chrome/124.0.0.0 '
+                    'Safari/537.36',
                 javaScriptEnabled: true,
                 transparentBackground: true,
-                proxy: selectedProxy['host']!.isNotEmpty
-                    ? Proxy(url: '${selectedProxy['host']}:${selectedProxy['port']}')
-                    : null,
               ),
+
               initialUserScripts: UnmodifiableListView([
                 UserScript(
                   source: antiFingerprintScript,
-                  injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+                  injectionTime:
+                      UserScriptInjectionTime.AT_DOCUMENT_START,
                 ),
               ]),
+
               onWebViewCreated: (controller) {
                 webViewController = controller;
               },
+
               onProgressChanged: (controller, progress) {
+                if (!mounted) return;
+
                 setState(() {
                   _progress = progress / 100;
                 });
               },
+
               onLoadStop: (controller, url) {
-                if (url != null) {
+                if (url != null && mounted) {
                   urlController.text = url.toString();
                 }
               },
@@ -238,25 +369,54 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 
   void _loadUrl(String urlString) {
-    var url = Uri.parse(urlString);
+    if (urlString.trim().isEmpty) {
+      return;
+    }
+
+    Uri url = Uri.parse(urlString.trim());
+
     if (!url.scheme.startsWith('http')) {
       url = Uri.parse('https://$urlString');
     }
+
     webViewController?.loadUrl(
-      urlRequest: URLRequest(url: WebUri(url.toString())),
+      urlRequest: URLRequest(
+        url: WebUri(url.toString()),
+      ),
     );
   }
 
-  void _applyProxyAndReload() {
-    if (webViewController != null) {
-      webViewController!.setSettings(
-        settings: InAppWebViewSettings(
-          proxy: selectedProxy['host']!.isNotEmpty
-              ? Proxy(url: '${selectedProxy['host']}:${selectedProxy['port']}')
-              : null,
+  Future<void> _applyProxyAndReload() async {
+    // CORRECTION : isFeatureSupported() retourne Future<bool>
+    if (!await WebViewFeature.isFeatureSupported(
+      WebViewFeature.PROXY_OVERRIDE,
+    )) {
+      return;
+    }
+
+    proxyController ??= ProxyController.instance();
+
+    if (selectedProxy['host']!.isEmpty) {
+      await proxyController!.clearProxyOverride();
+    } else {
+      await proxyController!.setProxyOverride(
+        settings: ProxySettings(
+          proxyRules: [
+            ProxyRule(
+              url:
+                  '${selectedProxy['host']}:${selectedProxy['port']}',
+            ),
+          ],
         ),
       );
-      webViewController!.reload();
     }
+
+    await webViewController?.reload();
+  }
+
+  @override
+  void dispose() {
+    urlController.dispose();
+    super.dispose();
   }
 }
